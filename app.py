@@ -1,44 +1,35 @@
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, render_template, request, jsonify
 
 app = Flask(__name__)
 
-# Store build status
 latest_status = "No build info yet"
 
 @app.route("/")
 def home():
-    return "DevOps Chatbot is running 👋"
+    return "✅ DevOps Chatbot is running! Visit /ui to open the chat interface."
 
-# Chat route
-@app.route("/chat", methods=["POST"])
-def chat():
-    global latest_status
-    user_msg = request.json.get("message", "").lower()
-
-    if "status" in user_msg:
-        reply = f"Latest Build Status: {latest_status}"
-    else:
-        reply = "Ask me: 'What is the build status?'"
-
-    return jsonify({"reply": reply})
-
-# Webhook route (for GitHub Actions)
-@app.route("/webhook", methods=["POST"])
-def webhook():
-    global latest_status
-    data = request.json
-
-    status = data.get("status", "unknown")
-    latest_status = status
-
-    print(f"✅ Webhook received! Build Status = {status}")
-    return jsonify({"message": "Webhook received"}), 200
-
-# UI route to show chatbot webpage
 @app.route("/ui")
 def ui():
     return render_template("index.html")
 
+@app.route("/chat", methods=["POST"])
+def chat():
+    global latest_status
+    user_msg = request.json.get("message", "").lower()
+    if "status" in user_msg:
+        reply = f"Latest Build Status: {latest_status}"
+    else:
+        reply = "Ask me: 'What is the build status?'"
+    return jsonify({"reply": reply})
+
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    global latest_status
+    data = request.json or {}
+    latest_status = data.get("status", "unknown")
+    print(f"✅ Webhook received! Build Status = {latest_status}")
+    return jsonify({"message": "Webhook received"}), 200
 
 if __name__ == "__main__":
-    app.run()
+    app.run(debug=True, port=5000)
+
