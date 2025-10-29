@@ -1,31 +1,44 @@
-from flask import Flask, request
-import requests
+from flask import Flask, request, jsonify, render_template
 
 app = Flask(__name__)
 
-# Slack webhook URL will be added later
-SLACK_WEBHOOK_URL = ""
+# Store build status
+latest_status = "No build info yet"
 
-@app.route('/notify', methods=['POST'])
-def notify():
+@app.route("/")
+def home():
+    return "DevOps Chatbot is running 👋"
+
+# Chat route
+@app.route("/chat", methods=["POST"])
+def chat():
+    global latest_status
+    user_msg = request.json.get("message", "").lower()
+
+    if "status" in user_msg:
+        reply = f"Latest Build Status: {latest_status}"
+    else:
+        reply = "Ask me: 'What is the build status?'"
+
+    return jsonify({"reply": reply})
+
+# Webhook route (for GitHub Actions)
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    global latest_status
     data = request.json
 
-    print("\n✅ Build Notification Received From Jenkins:")
-    print(data)
+    status = data.get("status", "unknown")
+    latest_status = status
 
-    # Creating the message
-    repo = data.get("repo", "Unknown Project")
-    build_num = data.get("build_number", "N/A")
-    status = data.get("status", "Unknown")
+    print(f"✅ Webhook received! Build Status = {status}")
+    return jsonify({"message": "Webhook received"}), 200
 
-    message = f"🔔 Build Status: {status}\n📌 Project: {repo}\n🆔 Build Number: {build_num}"
-
-    # If Slack webhook exists, send message
-    if SLACK_WEBHOOK_URL:
-        requests.post(SLACK_WEBHOOK_URL, json={"text": message})
-
-    return {"message": "✅ Notification processed"}, 200
+# UI route to show chatbot webpage
+@app.route("/ui")
+def ui():
+    return render_template("index.html")
 
 
-if __name__ == '__main__':
-    app.run(port=5000)
+if __name__ == "__main__":
+    app.run()
