@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>DevOps Chatbot</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f2f2f2; padding: 20px; }
+        #chatbox { width: 100%; height: 400px; background: #fff; border-radius: 10px; padding: 10px; overflow-y: auto; }
+        input { width: 80%; padding: 10px; }
+        button { padding: 10px; }
+    </style>
+</head>
+<body>
+    <h2>DevOps Build Chatbot 🤖</h2>
+    <div id="chatbox"></div>
+
+    <br>
+    <input type="text" id="msg" placeholder="Ask me about build status...">
+    <button onclick="sendMessage()">Send</button>
+
+    <script>
+        function sendMessage() {
+            var userMsg = document.getElementById("msg").value;
+            if (!userMsg) return;
+            document.getElementById("chatbox").innerHTML += "<b>You:</b> " + userMsg + "<br>";
+            document.getElementById("msg").value = ""
+
+            fetch("/chat", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({"message": userMsg})
+            })
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById("chatbox").innerHTML += "<b>Bot:</b> " + data.reply + "<br>";
+                document.getElementById("chatbox").scrollTop = document.getElementById("chatbox").scrollHeight;
+            })
+            .catch(err => {
+                document.getElementById("chatbox").innerHTML += "<b>Bot:</b> Error contacting server<br>";
+            });
+        }
+    </script>
+</body>
+</html>
