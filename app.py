@@ -1,9 +1,10 @@
 from flask import Flask, request, jsonify, render_template
-from datetime import datetime, timedelta
+from datetime import datetime
+import pytz
 
 app = Flask(__name__)
 
-# Store build history
+# Store build history (in-memory)
 build_history = []
 
 @app.route("/")
@@ -26,7 +27,7 @@ def chat():
                 f"Author: {latest['author']}\n"
                 f"Message: {latest['message']}\n"
                 f"Status: {latest['status']}\n"
-                f"Time: {latest['time']}"
+                f"Time: {latest['time']} IST"
             )
 
     elif "history" in user_msg or "previous" in user_msg:
@@ -39,13 +40,12 @@ def chat():
                     f"#{i} — {build['commit']} by {build['author']}\n"
                     f"   Message: {build['message']}\n"
                     f"   Status: {build['status']}\n"
-                    f"   Time: {build['time']}\n\n"
+                    f"   Time: {build['time']} IST\n\n"
                 )
-
     else:
         reply = (
             "Hi! I'm your CI/CD assistant.\n\n"
-            "Ask me:\n"
+            "Try commands:\n"
             "👉 'Show latest build'\n"
             "👉 'Show build history'"
         )
@@ -60,9 +60,9 @@ def webhook():
     if data is None:
         return jsonify({"error": "Invalid payload"}), 400
 
-    # GitHub sends 'ping' when you first add the webhook
+    # GitHub sends 'ping' when webhook added
     if 'zen' in data:
-        print("🔔 Received GitHub ping event")
+        print("🔔 Received GitHub ping")
         return jsonify({"status": "Ping received"}), 200
 
     # Handle actual push event
@@ -72,10 +72,11 @@ def webhook():
         author = latest_commit.get('author', {}).get('name', 'unknown')
         message = latest_commit.get('message', 'No message')
 
-        # ✅ Convert GitHub commit timestamp (UTC) → IST
-        github_timestamp = latest_commit.get('timestamp', datetime.utcnow().isoformat())
-        utc_time = datetime.fromisoformat(github_timestamp.replace("Z", ""))
-        ist_time = utc_time + timedelta(hours=5, minutes=30)
+        # ✅ Correct timestamp conversion (UTC → IST)
+        github_timestamp = latest_commit.get("timestamp")
+        utc_time = datetime.fromisoformat(github_timestamp.replace("Z", "+00:00"))
+        ist = pytz.timezone("Asia/Kolkata")
+        ist_time = utc_time.astimezone(ist)
 
         build_entry = {
             "commit": commit_id,
@@ -90,6 +91,7 @@ def webhook():
         return jsonify({"status": "Build recorded"}), 200
 
     return jsonify({"status": "Ignored event"}), 200
+
 
 # --- UI Route ---
 @app.route("/ui")
