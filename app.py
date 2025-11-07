@@ -10,8 +10,12 @@ app = Flask(__name__)
 # { "user/repo": [ {commit, message, status, time} ] }
 build_history = {}
 
+# Read GitHub credentials from environment variables (Render / OS)
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+GITHUB_USER = os.getenv("GITHUB_USER")     # <--- e.g., "Pabitha04"
+
 HEADERS = {"Authorization": f"token {GITHUB_TOKEN}"}
+
 
 # Convert UTC → IST
 def convert_to_ist(timestamp):
@@ -19,18 +23,24 @@ def convert_to_ist(timestamp):
     ist = pytz.timezone("Asia/Kolkata")
     return utc.astimezone(ist).strftime("%Y-%m-%d %H:%M:%S")
 
+
 @app.route("/")
 def home():
-    return "✅ DevOps Chatbot running! Visit /ui to chat."
+    return "✅ DevOps Chatbot is running! Visit /ui to chat."
 
-# ✅ Chat Endpoint
+
+# ✅ Chat Endpoint (UI → Chatbot)
 @app.route("/chat", methods=["POST"])
 def chat():
-    user_msg = request.json.get("message", "").lower()
-    selected_project = request.json.get("project", None)
+    data = request.json
+    user_msg = data.get("message", "").lower()
+    selected_project = data.get("project")
 
-    if not selected_project or selected_project not in build_history:
-        return jsonify({"reply": "❗ Select a project first from dropdown."})
+    if not selected_project:
+        return jsonify({"reply": "❗ Select a project from dropdown first."})
+
+    if selected_project not in build_history or len(build_history[selected_project]) == 0:
+        return jsonify({"reply": f"📭 No builds yet for {selected_project}."})
 
     project_builds = build_history[selected_project]
 
@@ -38,53 +48,59 @@ def chat():
         latest = project_builds[-1]
         reply = (
             f"📌 Project: {selected_project}\n"
-            f"Commit: {latest['commit']}\n"
-            f"Message: {latest['message']}\n"
-            f"Status: {latest['status']}\n"
-            f"Time: {latest['time']} IST"
+            f"🔹 Commit: {latest['commit']}\n"
+            f"🔹 Message: {latest['message']}\n"
+            f"🔹 Status: {latest['status']}\n"
+            f"🕒 Time: {latest['time']} IST"
         )
 
     elif "history" in user_msg:
         reply = f"📜 Build history for {selected_project}:\n\n"
         for i, build in enumerate(project_builds[-5:], 1):
-            reply += f"#{i} — {build['commit']} ({build['status']})\n"
+            reply += f"{i}. {build['commit']} — {build['status']}\n"
 
     else:
         reply = (
-            "🤖 Commands:\n"
+            "🤖 Available commands:\n"
             "👉 Show latest build\n"
-            "👉 Show build history\n"
+            "👉 Show build history"
         )
 
     return jsonify({"reply": reply})
 
 
-# ✅ GitHub Webhook (push event + status)
+# ✅ GitHub Webhook (push event + workflow status)
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.json
 
     repo_name = data.get("repository", {}).get("full_name")
+    if not repo_name:
+        return jsonify({"status": "No repo info"}), 200
+
     if repo_name not in build_history:
         build_history[repo_name] = []
 
-    # Handle push event → commit metadata
+    # Handle PUSH event → commit detected
     if "head_commit" in data:
         commit = data["head_commit"]
         commit_id = commit["id"][:7]
-        message = commit.get("message", "No message")
+        message = commit.get("message", "No commit message")
         timestamp = convert_to_ist(commit["timestamp"])
+
         build_history[repo_name].append({
             "commit": commit_id,
             "message": message,
             "status": "⏳ Build Triggered",
             "time": timestamp
         })
+
         return jsonify({"status": "Commit received"}), 200
 
-    # ✅ Detect build completed (workflow_run)
+    # Handle WORKFLOW_RUN → build completed
     if data.get("workflow_run"):
         workflow = data["workflow_run"]
+
         commit_id = workflow["head_commit"]["id"][:7]
         status = "✅ Success" if workflow["conclusion"] == "success" else "❌ Failed"
         timestamp = convert_to_ist(workflow["updated_at"])
@@ -101,10 +117,20 @@ def webhook():
     return jsonify({"status": "Ignored"}), 200
 
 
-# ✅ Send repo list to UI
+# ✅ Fetch project list from GitHub for dropdown
 @app.route("/projects")
 def get_projects():
-    return jsonify({"projects": list(build_history.keys())})
+    if not GITHUB_USER:
+        return jsonify({"projects": []})
+
+    url = f"https://api.github.com/users/{GITHUB_USER}/repos"
+    response = requests.get(url, headers=HEADERS)
+
+    if response.status_code == 200:
+        repos = [repo["full_name"] for repo in response.json()]
+        return jsonify({"projects": repos})
+
+    return jsonify({"projects": []})
 
 
 @app.route("/ui")

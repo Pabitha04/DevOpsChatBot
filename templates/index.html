@@ -28,11 +28,11 @@
             font-size: 1.6rem;
         }
         #repo-container {
-            padding: 0.5rem 1rem;
+            padding: 0.8rem;
             background-color: #0d1117;
             border-bottom: 2px solid #30363d;
         }
-        #repoDropdown {
+        select {
             width: 100%;
             padding: 0.7rem;
             background-color: #161b22;
@@ -102,12 +102,6 @@
         #send-btn:hover {
             background-color: #1f6feb;
         }
-        .status-success {
-            border-left: 5px solid #2ea043;
-        }
-        .status-fail {
-            border-left: 5px solid #da3633;
-        }
         .typing {
             color: #8b949e;
             font-style: italic;
@@ -117,44 +111,46 @@
 </head>
 
 <body>
-    <header>
-        <h1>⚙️ DevOps CI/CD Chatbot</h1>
-    </header>
+<header>
+    <h1>⚙️ DevOps CI/CD Chatbot</h1>
+</header>
 
-    <!-- ✅ Dropdown -->
-    <div id="repo-container">
-        <select id="repoDropdown">
-            <option disabled selected>Loading repositories...</option>
-        </select>
-    </div>
+<!-- ✅ Repo dropdown -->
+<div id="repo-container">
+    <select id="repoDropdown">
+        <option disabled selected>Loading repositories...</option>
+    </select>
+</div>
 
-    <div id="chat-box">
-        <div class="bot message">🤖 Hi! I'm your CI/CD assistant.<br>
+<!-- Chat messages -->
+<div id="chat-box">
+    <div class="bot message">
+        🤖 Hi! I'm your CI/CD assistant.<br><br>
         Select a project above and ask:<br>
         👉 "Show latest build"<br>
         👉 "Show build history"
-        </div>
     </div>
+</div>
 
-    <div id="input-area">
-        <input type="text" id="user-input" placeholder="Type a message..." onkeydown="handleKey(event)">
-        <button id="send-btn" onclick="sendMessage()">Send</button>
-    </div>
+<!-- Input area -->
+<div id="input-area">
+    <input type="text" id="user-input" placeholder="Type a message..." onkeydown="handleKey(event)">
+    <button id="send-btn" onclick="sendMessage()">Send</button>
+</div>
 
-    <script>
+<script>
 const chatBox = document.getElementById("chat-box");
+const dropdown = document.getElementById("repoDropdown");
 
-// ⬇️ Load dropdown items dynamically
+// ✅ Load repositories into dropdown
 window.onload = async () => {
     const response = await fetch("/projects");
     const data = await response.json();
 
-    const dropdown = document.createElement("select");
-    dropdown.id = "project-select";
     dropdown.innerHTML = `<option disabled selected>Select Project</option>`;
-    data.projects.forEach(p => dropdown.innerHTML += `<option value="${p}">${p}</option>`);
-
-    document.getElementById("input-area").prepend(dropdown);
+    data.projects.forEach(repo =>
+        dropdown.innerHTML += `<option value="${repo}">${repo}</option>`
+    );
 };
 
 function addMessage(text, sender) {
@@ -162,27 +158,38 @@ function addMessage(text, sender) {
     div.className = `message ${sender}`;
     div.textContent = text;
     chatBox.appendChild(div);
+    chatBox.scrollTop = chatBox.scrollHeight;
 }
 
-// ✅ Send message + selected project
+// ✅ Handle Enter key
+function handleKey(event) {
+    if (event.key === "Enter") sendMessage();
+}
+
+// ✅ Send chatbot request
 async function sendMessage() {
     const input = document.getElementById("user-input");
-    const dropdown = document.getElementById("project-select");
+    const selectedRepo = dropdown.value;
 
-    if (!dropdown || !dropdown.value)
-        return alert("❗ Select a project first");
+    if (!selectedRepo) {
+        alert("❗ Please select a project first.");
+        return;
+    }
+
+    addMessage(input.value, "user");
 
     const res = await fetch("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
             message: input.value,
-            project: dropdown.value
+            project: selectedRepo
         })
     });
 
     const data = await res.json();
     addMessage(data.reply, "bot");
+
     input.value = "";
 }
 </script>
