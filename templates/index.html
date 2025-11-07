@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DevOps Chatbot Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Fira+Code&display=swap" rel="stylesheet">
+
     <style>
         body {
             font-family: 'Fira Code', monospace;
@@ -25,6 +26,20 @@
         header h1 {
             color: #58a6ff;
             font-size: 1.6rem;
+        }
+        #repo-container {
+            padding: 0.5rem 1rem;
+            background-color: #0d1117;
+            border-bottom: 2px solid #30363d;
+        }
+        #repoDropdown {
+            width: 100%;
+            padding: 0.7rem;
+            background-color: #161b22;
+            color: white;
+            border-radius: 6px;
+            border: 1px solid #30363d;
+            font-size: 1rem;
         }
         #chat-box {
             flex: 1;
@@ -100,14 +115,25 @@
         }
     </style>
 </head>
+
 <body>
     <header>
         <h1>⚙️ DevOps CI/CD Chatbot</h1>
     </header>
 
+    <!-- ✅ Dropdown -->
+    <div id="repo-container">
+        <select id="repoDropdown">
+            <option disabled selected>Loading repositories...</option>
+        </select>
+    </div>
+
     <div id="chat-box">
         <div class="bot message">🤖 Hi! I'm your CI/CD assistant.<br>
-        Ask me: "Show latest build" or "Show build history".</div>
+        Select a project above and ask:<br>
+        👉 "Show latest build"<br>
+        👉 "Show build history"
+        </div>
     </div>
 
     <div id="input-area">
@@ -116,56 +142,50 @@
     </div>
 
     <script>
-        const chatBox = document.getElementById("chat-box");
+const chatBox = document.getElementById("chat-box");
 
-        function addMessage(text, sender, statusClass = "") {
-            const msg = document.createElement("div");
-            msg.className = `message ${sender} ${statusClass}`;
-            msg.textContent = text;
-            chatBox.appendChild(msg);
-            chatBox.scrollTop = chatBox.scrollHeight;
-        }
+// ⬇️ Load dropdown items dynamically
+window.onload = async () => {
+    const response = await fetch("/projects");
+    const data = await response.json();
 
-        async function sendMessage() {
-            const input = document.getElementById("user-input");
-            const userMsg = input.value.trim();
-            if (!userMsg) return;
+    const dropdown = document.createElement("select");
+    dropdown.id = "project-select";
+    dropdown.innerHTML = `<option disabled selected>Select Project</option>`;
+    data.projects.forEach(p => dropdown.innerHTML += `<option value="${p}">${p}</option>`);
 
-            addMessage(userMsg, "user");
-            input.value = "";
+    document.getElementById("input-area").prepend(dropdown);
+};
 
-            const typing = document.createElement("div");
-            typing.className = "typing";
-            typing.textContent = "Bot is typing...";
-            chatBox.appendChild(typing);
-            chatBox.scrollTop = chatBox.scrollHeight;
+function addMessage(text, sender) {
+    const div = document.createElement("div");
+    div.className = `message ${sender}`;
+    div.textContent = text;
+    chatBox.appendChild(div);
+}
 
-            try {
-                const res = await fetch("/chat", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ message: userMsg })
-                });
-                const data = await res.json();
-                chatBox.removeChild(typing);
+// ✅ Send message + selected project
+async function sendMessage() {
+    const input = document.getElementById("user-input");
+    const dropdown = document.getElementById("project-select");
 
-                let reply = data.reply;
-                let statusClass = "";
+    if (!dropdown || !dropdown.value)
+        return alert("❗ Select a project first");
 
-                if (reply.toLowerCase().includes("success")) statusClass = "status-success";
-                else if (reply.toLowerCase().includes("fail")) statusClass = "status-fail";
+    const res = await fetch("/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            message: input.value,
+            project: dropdown.value
+        })
+    });
 
-                addMessage(reply, "bot", statusClass);
-            } catch {
-                chatBox.removeChild(typing);
-                addMessage("⚠️ Error: Could not connect to the server.", "bot", "status-fail");
-            }
-        }
+    const data = await res.json();
+    addMessage(data.reply, "bot");
+    input.value = "";
+}
+</script>
 
-        function handleKey(event) {
-            if (event.key === "Enter") sendMessage();
-        }
-        
-    </script>
 </body>
 </html>

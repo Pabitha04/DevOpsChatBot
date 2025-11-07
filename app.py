@@ -1,105 +1,116 @@
 from flask import Flask, request, jsonify, render_template
 from datetime import datetime
 import pytz
+import requests
+import os
 
 app = Flask(__name__)
 
-# Store build history (in-memory)
-build_history = []
+# Stores builds per project:
+# { "user/repo": [ {commit, message, status, time} ] }
+build_history = {}
+
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+HEADERS = {"Authorization": f"token {GITHUB_TOKEN}"}
+
+# Convert UTC → IST
+def convert_to_ist(timestamp):
+    utc = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    ist = pytz.timezone("Asia/Kolkata")
+    return utc.astimezone(ist).strftime("%Y-%m-%d %H:%M:%S")
 
 @app.route("/")
 def home():
-    return "✅ DevOps Chatbot is running! Visit /ui to chat."
+    return "✅ DevOps Chatbot running! Visit /ui to chat."
 
-# --- Chatbot Route ---
+# ✅ Chat Endpoint
 @app.route("/chat", methods=["POST"])
 def chat():
     user_msg = request.json.get("message", "").lower()
+    selected_project = request.json.get("project", None)
 
-    if "latest" in user_msg or "status" in user_msg:
-        if not build_history:
-            reply = "🚫 No build data available yet."
-        else:
-            latest = build_history[-1]
-            reply = (
-                f"✅ Latest Build Info\n"
-                f"Commit: {latest['commit']}\n"
-                f"Author: {latest['author']}\n"
-                f"Message: {latest['message']}\n"
-                f"Status: {latest['status']}\n"
-                f"Time: {latest['time']} IST"
-            )
+    if not selected_project or selected_project not in build_history:
+        return jsonify({"reply": "❗ Select a project first from dropdown."})
 
-    elif "history" in user_msg or "previous" in user_msg:
-        if not build_history:
-            reply = "📭 No builds recorded yet."
-        else:
-            reply = "🧾 Build History:\n\n"
-            for i, build in enumerate(build_history[-5:], 1):
-                reply += (
-                    f"#{i} — {build['commit']} by {build['author']}\n"
-                    f"   Message: {build['message']}\n"
-                    f"   Status: {build['status']}\n"
-                    f"   Time: {build['time']} IST\n\n"
-                )
+    project_builds = build_history[selected_project]
+
+    if "latest" in user_msg:
+        latest = project_builds[-1]
+        reply = (
+            f"📌 Project: {selected_project}\n"
+            f"Commit: {latest['commit']}\n"
+            f"Message: {latest['message']}\n"
+            f"Status: {latest['status']}\n"
+            f"Time: {latest['time']} IST"
+        )
+
+    elif "history" in user_msg:
+        reply = f"📜 Build history for {selected_project}:\n\n"
+        for i, build in enumerate(project_builds[-5:], 1):
+            reply += f"#{i} — {build['commit']} ({build['status']})\n"
+
     else:
         reply = (
-            "Hi! I'm your CI/CD assistant.\n\n"
-            "Try commands:\n"
-            "👉 'Show latest build'\n"
-            "👉 'Show build history'"
+            "🤖 Commands:\n"
+            "👉 Show latest build\n"
+            "👉 Show build history\n"
         )
 
     return jsonify({"reply": reply})
 
-# --- GitHub Webhook Route ---
+
+# ✅ GitHub Webhook (push event + status)
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.json
 
-    if data is None:
-        return jsonify({"error": "Invalid payload"}), 400
+    repo_name = data.get("repository", {}).get("full_name")
+    if repo_name not in build_history:
+        build_history[repo_name] = []
 
-    # GitHub sends 'ping' when webhook added
-    if 'zen' in data:
-        print("🔔 Received GitHub ping")
-        return jsonify({"status": "Ping received"}), 200
-
-    # Handle actual push event
-    if 'head_commit' in data:
-        latest_commit = data['head_commit']
-        commit_id = latest_commit.get('id', 'unknown')[:7]
-        author = latest_commit.get('author', {}).get('name', 'unknown')
-        message = latest_commit.get('message', 'No message')
-
-        # ✅ Correct timestamp conversion (UTC → IST)
-        github_timestamp = latest_commit.get("timestamp")
-        utc_time = datetime.fromisoformat(github_timestamp.replace("Z", "+00:00"))
-        ist = pytz.timezone("Asia/Kolkata")
-        ist_time = utc_time.astimezone(ist)
-
-        build_entry = {
+    # Handle push event → commit metadata
+    if "head_commit" in data:
+        commit = data["head_commit"]
+        commit_id = commit["id"][:7]
+        message = commit.get("message", "No message")
+        timestamp = convert_to_ist(commit["timestamp"])
+        build_history[repo_name].append({
             "commit": commit_id,
-            "author": author,
             "message": message,
-            "status": "Build Successful ✅",
-            "time": ist_time.strftime("%Y-%m-%d %H:%M:%S")
-        }
+            "status": "⏳ Build Triggered",
+            "time": timestamp
+        })
+        return jsonify({"status": "Commit received"}), 200
 
-        build_history.append(build_entry)
-        print(f"✅ Build recorded: {build_entry}")
-        return jsonify({"status": "Build recorded"}), 200
+    # ✅ Detect build completed (workflow_run)
+    if data.get("workflow_run"):
+        workflow = data["workflow_run"]
+        commit_id = workflow["head_commit"]["id"][:7]
+        status = "✅ Success" if workflow["conclusion"] == "success" else "❌ Failed"
+        timestamp = convert_to_ist(workflow["updated_at"])
 
-    return jsonify({"status": "Ignored event"}), 200
+        build_history[repo_name].append({
+            "commit": commit_id,
+            "message": workflow["head_commit"]["message"],
+            "status": status,
+            "time": timestamp
+        })
+
+        return jsonify({"status": "Build status saved"}), 200
+
+    return jsonify({"status": "Ignored"}), 200
 
 
-# --- UI Route ---
+# ✅ Send repo list to UI
+@app.route("/projects")
+def get_projects():
+    return jsonify({"projects": list(build_history.keys())})
+
+
 @app.route("/ui")
 def ui():
     return render_template("index.html")
 
 
 if __name__ == "__main__":
-    import os
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
