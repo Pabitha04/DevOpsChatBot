@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify, render_template
-from datetime import datetime
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
@@ -71,14 +71,18 @@ def webhook():
         commit_id = latest_commit.get('id', 'unknown')[:7]
         author = latest_commit.get('author', {}).get('name', 'unknown')
         message = latest_commit.get('message', 'No message')
-        timestamp = latest_commit.get('timestamp', datetime.utcnow().isoformat())
+
+        # ✅ Convert GitHub commit timestamp (UTC) → IST
+        github_timestamp = latest_commit.get('timestamp', datetime.utcnow().isoformat())
+        utc_time = datetime.fromisoformat(github_timestamp.replace("Z", ""))
+        ist_time = utc_time + timedelta(hours=5, minutes=30)
 
         build_entry = {
             "commit": commit_id,
             "author": author,
             "message": message,
             "status": "Build Successful ✅",
-            "time": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+            "time": ist_time.strftime("%Y-%m-%d %H:%M:%S")
         }
 
         build_history.append(build_entry)
